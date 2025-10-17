@@ -7,6 +7,7 @@
 #include "hardware/pwm.h"
 #include "pico/cyw43_arch.h"
 
+#include "lwip/def.h"
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 
@@ -21,7 +22,7 @@ namespace {
     constexpr uint kEscPin = 28;
     constexpr uint32_t kPwmWrap = 20000;           // 20 ms period -> 50 Hz
     constexpr float kPwmClockDiv = 125.0f;         // 125 MHz / 125 = 1 MHz -> 1us resolution
-    constexpr uint16_t kServoNeutralUs = 1580;
+    constexpr uint16_t kServoNeutralUs = 1500;
     constexpr uint16_t kAileronUpRangeUs = 356;
     constexpr float kAileronDownRatio = 0.85f;
     constexpr uint16_t kElevatorRangeUs = 344;
@@ -115,11 +116,24 @@ namespace {
         return {{roll_left_servo, roll_right_servo, pitch_servo, yaw_servo}, throttle_esc};
     }
 
+    float decode_network_float(const uint8_t *data) {
+        uint32_t raw = 0;
+        std::memcpy(&raw, data, sizeof(raw));
+        raw = lwip_ntohl(raw);
+
+        float value = 0.0f;
+        std::memcpy(&value, &raw, sizeof(value));
+        return value;
+    }
+
     bool parse_packet(const std::array<uint8_t, kBufferSize> &buffer, FlightPacket *out_packet) {
         static_assert(sizeof(FlightPacket) == kBufferSize, "Unexpected packet size");
 
-        FlightPacket packet;
-        std::memcpy(&packet, buffer.data(), sizeof(FlightPacket));
+        FlightPacket packet{};
+        packet.roll = decode_network_float(buffer.data() + 0);
+        packet.pitch = decode_network_float(buffer.data() + 4);
+        packet.yaw = decode_network_float(buffer.data() + 8);
+        packet.throttle_norm = decode_network_float(buffer.data() + 12);
 
         if (std::isnan(packet.roll) || std::isnan(packet.pitch) || std::isnan(packet.yaw) ||
             std::isnan(packet.throttle_norm)) {
